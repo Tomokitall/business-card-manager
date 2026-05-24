@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 type BusinessCard = {
   id: number;
   name: string;
+  kana: string;
   company: string;
   position: string;
   officePhone: string;
@@ -17,6 +18,7 @@ const defaultCards: BusinessCard[] = [
   {
     id: 1,
     name: "山田 太郎",
+    kana: "やまだ たろう",
     company: "Green Tech株式会社",
     position: "営業部長",
     officePhone: "06-1234-5678",
@@ -24,7 +26,41 @@ const defaultCards: BusinessCard[] = [
     email: "yamada@example.com",
     createdAt: "2026-05-24",
   },
+  {
+    id: 2,
+    name: "佐藤 花子",
+    kana: "さとう はなこ",
+    company: "アオイ商事",
+    position: "デザイナー",
+    officePhone: "03-1111-2222",
+    mobilePhone: "080-1111-2222",
+    email: "sato@example.com",
+    createdAt: "2026-05-23",
+  },
+  {
+    id: 3,
+    name: "John Smith",
+    kana: "john smith",
+    company: "Future Design",
+    position: "Manager",
+    officePhone: "052-333-4444",
+    mobilePhone: "070-3333-4444",
+    email: "john@example.com",
+    createdAt: "2026-05-22",
+  },
 ];
+
+const guessKana = (name: string) => {
+  const map: Record<string, string> = {
+    "山田 太郎": "やまだ たろう",
+    "佐藤 花子": "さとう はなこ",
+    "鈴木 一郎": "すずき いちろう",
+    "高橋 美咲": "たかはし みさき",
+    "中村 健太": "なかむら けんた",
+  };
+
+  return map[name] || name;
+};
 
 export default function Page() {
   const [cards, setCards] = useState<BusinessCard[]>([]);
@@ -36,6 +72,7 @@ export default function Page() {
 
   const [form, setForm] = useState({
     name: "",
+    kana: "",
     company: "",
     position: "",
     officePhone: "",
@@ -45,7 +82,27 @@ export default function Page() {
 
   useEffect(() => {
     const saved = localStorage.getItem("business-cards");
-    setCards(saved ? JSON.parse(saved) : defaultCards);
+
+    if (!saved) {
+      setCards(defaultCards);
+      return;
+    }
+
+    const parsed = JSON.parse(saved);
+
+    const fixed = parsed.map((card: Partial<BusinessCard>) => ({
+      id: card.id || Date.now(),
+      name: card.name || "",
+      kana: card.kana || guessKana(card.name || ""),
+      company: card.company || "",
+      position: card.position || "",
+      officePhone: card.officePhone || "",
+      mobilePhone: card.mobilePhone || "",
+      email: card.email || "",
+      createdAt: card.createdAt || new Date().toISOString(),
+    }));
+
+    setCards(fixed);
   }, []);
 
   useEffect(() => {
@@ -72,9 +129,22 @@ export default function Page() {
     return `${n.slice(0, 3)}-${n.slice(3, 6)}-${n.slice(6, 10)}`;
   };
 
+  const normalizeKana = (text: string) => {
+    return text
+      .normalize("NFKC")
+      .replace(/\s/g, "")
+      .replace(/[ァ-ン]/g, (char) =>
+        String.fromCharCode(char.charCodeAt(0) - 0x60)
+      );
+  };
+
+  const isJapanese = (text: string) => {
+    return /[ぁ-んァ-ヶ一-龯]/.test(text);
+  };
+
   const sortedCards = useMemo(() => {
     const result = cards.filter((card) => {
-      const text = `${card.name} ${card.company} ${card.position} ${card.email}`;
+      const text = `${card.name} ${card.kana} ${card.company} ${card.position} ${card.email}`;
       return text.toLowerCase().includes(search.toLowerCase());
     });
 
@@ -83,23 +153,31 @@ export default function Page() {
       sensitivity: "base",
     });
 
-    return result.sort((a, b) => {
-      const isAlphabet = (text: string) => /^[a-zA-Z]/.test(text);
-
+    return [...result].sort((a, b) => {
       if (sortType === "name") {
-        const aAlpha = isAlphabet(a.name);
-        const bAlpha = isAlphabet(b.name);
-        if (!aAlpha && bAlpha) return -1;
-        if (aAlpha && !bAlpha) return 1;
-        return collator.compare(a.name, b.name);
+        const aKana = normalizeKana(a.kana || a.name);
+        const bKana = normalizeKana(b.kana || b.name);
+
+        const aJapanese = isJapanese(aKana);
+        const bJapanese = isJapanese(bKana);
+
+        if (aJapanese && !bJapanese) return -1;
+        if (!aJapanese && bJapanese) return 1;
+
+        return collator.compare(aKana, bKana);
       }
 
       if (sortType === "company") {
-        const aAlpha = isAlphabet(a.company);
-        const bAlpha = isAlphabet(b.company);
-        if (!aAlpha && bAlpha) return -1;
-        if (aAlpha && !bAlpha) return 1;
-        return collator.compare(a.company, b.company);
+        const aCompany = normalizeKana(a.company);
+        const bCompany = normalizeKana(b.company);
+
+        const aJapanese = isJapanese(aCompany);
+        const bJapanese = isJapanese(bCompany);
+
+        if (aJapanese && !bJapanese) return -1;
+        if (!aJapanese && bJapanese) return 1;
+
+        return collator.compare(aCompany, bCompany);
       }
 
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
@@ -114,12 +192,14 @@ export default function Page() {
         id: Date.now(),
         createdAt: new Date().toISOString(),
         ...form,
+        kana: form.kana || form.name,
       },
       ...cards,
     ]);
 
     setForm({
       name: "",
+      kana: "",
       company: "",
       position: "",
       officePhone: "",
@@ -191,6 +271,13 @@ export default function Page() {
               />
 
               <input
+                placeholder="ふりがな（並び替え用・表示されません）"
+                value={form.kana}
+                onChange={(e) => setForm({ ...form, kana: e.target.value })}
+                className="rounded-xl border border-slate-300 px-4 py-2"
+              />
+
+              <input
                 placeholder="会社名"
                 value={form.company}
                 onChange={(e) => setForm({ ...form, company: e.target.value })}
@@ -253,7 +340,9 @@ export default function Page() {
                   <h2 className="text-2xl font-bold text-slate-800">
                     {card.name}
                   </h2>
+
                   <p className="mt-2 text-slate-600">{card.company}</p>
+
                   <p className="text-sm text-slate-500">
                     {card.position || "未設定"}
                   </p>
